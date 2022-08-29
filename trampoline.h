@@ -1,58 +1,15 @@
-#include <sys/mman.h>
-#include <memory.h>
-#include <iostream>
-#include <assert.h>
+/*A trampoline that can be used to call instance member functions in native C code.
+* To use it one must create a c handle function of the instance member function, that
+* simply takes the instance as arguments, and calls the chosen function from that instance.
+* The trampoline can then use a function pointer to the above, and give back a function
+* pointer that takes zero arguments (It only works for instance member functions, that do
+* not take any arguments). 
+*/
 
-class Fish {
-private:
-    int _classifier;
-public:
-    Fish(int c) {
-        _classifier = c;
-    }
+#include <cstdint>
 
-    void Thingy() {
-        std::cout << "I'm the fish " << _classifier << std::endl;
-    }
-};
+#include "codeBuffer.h"
 
-// C handle
-void cThingy(Fish* instance) { instance->Thingy(); }
-
-// Here we go creating a trampoline for the C handle function.
-class CodeBuffer {
-public:
-    CodeBuffer(size_t size) {
-        _buffer = (unsigned char *)mmap(
-            NULL,
-            size,
-            PROT_READ | PROT_WRITE | PROT_EXEC,
-            MAP_ANONYMOUS | MAP_PRIVATE,
-            0,
-            0);;
-        assert(_buffer != NULL && "Could not allocate code region for trampoline.");
-
-        _bufferSize = size;
-        _index = 0;
-    }
-
-    void Add(const uint8_t* opcode, size_t n) {
-        assert(n + _index < _bufferSize && "No room for opcode in code buffer.");
-
-        memcpy((void *)(_buffer + _index), opcode, n);
-        _index += n;
-    }
-
-    unsigned char* GetFunctionPointer() {
-        return _buffer;
-    }
-
-private:
-    size_t _index;
-
-    size_t _bufferSize;
-    unsigned char* _buffer;
-};
 
 class Trampoline {
 public:
@@ -113,11 +70,3 @@ private:
         buffer->Add(arr, sizeof(arr));
     }
 };
-
-int main() {
-    auto fish = new Fish(12);
-
-    auto fun = Trampoline::Jump0Param<Fish>(fish, cThingy);
-
-    (*fun)();
-}

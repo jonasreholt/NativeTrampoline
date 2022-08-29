@@ -1,11 +1,9 @@
 FLAGS=-Wextra -Wall -pedantic
 COMPILER=g++
 
-Trampoline:
-	$(COMPILER) $(FLAGS) -o Trampoline trampoline.cpp
+Example: Clean
+	$(COMPILER) $(FLAGS) -o example.exe example.cpp trampoline.h codeBuffer.h
 
-TrampolineDEBUG:
-	$(COMPILER) $(FLAGS) -g -o Trampoline trampoline.cpp
 
 Clean:
-	rm -f Trampoline
+	rm -f *.exe
