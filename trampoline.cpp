@@ -1,6 +1,7 @@
 #include <sys/mman.h>
+#include <memory.h>
 #include <iostream>
-#include <stdexcept>
+#include <assert.h>
 
 class Fish {
 private:
@@ -29,19 +30,17 @@ public:
             MAP_ANONYMOUS | MAP_PRIVATE,
             0,
             0);;
+        assert(_buffer != NULL && "Could not allocate code region for trampoline.");
 
         _bufferSize = size;
         _index = 0;
     }
 
-    void Add(int8_t* opcode, size_t n) {
-        if (n + _index >= _bufferSize) {
-            throw std::invalid_argument("No room for opcode in code buffer.");
-        }
+    void Add(const uint8_t* opcode, size_t n) {
+        assert(n + _index < _bufferSize && "No room for opcode in code buffer.");
 
-        for (size_t i = 0; i < n; i++, _index++) {
-            _buffer[_index] = opcode[i];
-        }
+        memcpy((void *)(_buffer + _index), opcode, n);
+        _index += n;
     }
 
     unsigned char* GetFunctionPointer() {
@@ -60,7 +59,7 @@ public:
     typedef void (*testFun)();
 
     template<typename T>
-    static testFun Jump(T* instance, void (*functionToJump)(T*)) {
+    static testFun Jump0Param(T* instance, void (*functionToJump)(T*)) {
         const size_t codeLen = 4096;
         auto buffer = new CodeBuffer(codeLen);
 
@@ -78,42 +77,39 @@ private:
     const unsigned int BITS_PR_BYTE = 8;
 
     static void MaintainFramePointerStart(CodeBuffer* buffer) {
-        int8_t arr[] = { (int8_t)0x55,  // pushq %rbp
-            (int8_t)0x48, (int8_t)0x89, (int8_t)0xec }; // movq #rbp, %rsp
-        buffer->Add(arr, 4);
+        uint8_t arr[] = { (uint8_t)0x55,                    // pushq %rbp
+            (uint8_t)0x48, (uint8_t)0x89, (uint8_t)0xec };  // movq #rbp, %rsp
+        buffer->Add(arr, sizeof(arr));
     }
 
     static void MaintainFramePointerEnd(CodeBuffer* buffer) {
-        int8_t arr[] { (int8_t)0x5d };
+        uint8_t arr[] { (uint8_t)0x5d };
         buffer->Add(arr, sizeof(arr));
     }
 
     static void Return(CodeBuffer* buffer) {
-        int8_t arr[] { (int8_t)0xc3 };
+        uint8_t arr[] { (uint8_t)0xc3 };
         buffer->Add(arr, sizeof(arr));
     }
 
-    static void AddInstancePointerToArgs(CodeBuffer* buffer, intptr_t instancePtr) {
-        // movq %rdi <- instancePtr
-        int8_t arr[] { (int8_t)0x48, (int8_t)0xbf,
-            (int8_t)instancePtr, (int8_t)(instancePtr>>8), (int8_t)(instancePtr>>16),
-            (int8_t)(instancePtr>>24), (int8_t)(instancePtr>>32), (int8_t)(instancePtr>>40),
-            (int8_t)(instancePtr>>48), (int8_t)(instancePtr>>56) };
+    static void AddInstancePointerToArgs(CodeBuffer* buffer, intptr_t ptr) {
+        uint8_t arr[] {
+            // movabs $imm, %rdi
+            (uint8_t)0x48, (uint8_t)0xbf,
+            (uint8_t)ptr, (uint8_t)(ptr>>8), (uint8_t)(ptr>>16), (uint8_t)(ptr>>24), (uint8_t)(ptr>>32), (uint8_t)(ptr>>40), (uint8_t)(ptr>>48), (uint8_t)(ptr>>56),};
         buffer->Add(arr, sizeof(arr));
     }
 
-    static void PrepareFunctionPointer(CodeBuffer* buffer, intptr_t functionPtr) {
-        // movq %rax <- functionPtr
-        int8_t arr[] { (int8_t)0x48, (int8_t)0xA1,
-            (int8_t)functionPtr, (int8_t)(functionPtr>>8), (int8_t)(functionPtr>>16),
-            (int8_t)(functionPtr>>24), (int8_t)(functionPtr>>32), (int8_t)(functionPtr>>40),
-            (int8_t)(functionPtr>>48), (int8_t)(functionPtr>>56) };
+    static void PrepareFunctionPointer(CodeBuffer* buffer, intptr_t ptr) {
+        // movabs $imm, %rax
+        uint8_t arr[] { (uint8_t)0x48, (uint8_t)0xb8,
+            (uint8_t)ptr, (uint8_t)(ptr>>8), (uint8_t)(ptr>>16), (uint8_t)(ptr>>24), (uint8_t)(ptr>>32), (uint8_t)(ptr>>40), (uint8_t)(ptr>>48), (uint8_t)(ptr>>56) };
         buffer->Add(arr, sizeof(arr));
     }
 
     static void CallFunction(CodeBuffer* buffer) {
         // call %rax
-        int8_t arr[] { (int8_t)0x5d, (int8_t)0xd0 };
+        uint8_t arr[] { (uint8_t)0xff, (uint8_t)0xd0 };
         buffer->Add(arr, sizeof(arr));
     }
 };
@@ -121,7 +117,7 @@ private:
 int main() {
     auto fish = new Fish(12);
 
-    auto fun = Trampoline::Jump<Fish>(fish, &cThingy);
+    auto fun = Trampoline::Jump0Param<Fish>(fish, cThingy);
 
     (*fun)();
 }
